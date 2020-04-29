@@ -12,27 +12,38 @@ import (
 
 const ValidArgsNum = 4
 
-type Account struct {
-	Id        int
-	AccountId string
-	LoginId   string
-	Password  string
-	Retailer  string
+type ItemOrderInfo struct {
+	DiscordId  string
+	Email      string
+	FamilyName string
+	FirstName  string
+	ItemName   string
+	Size       string
+	Color      string
+	Profile    string
 }
 
 func main() {
 	if len(os.Args) != ValidArgsNum {
-		failOnError("main.exeにTXTファイル、アドレスExcelファイル、weeek Excelファイルを同時にドラッグ&ドロップしてください", nil)
+		exe, err := os.Executable()
+		if err != nil {
+			failOnError("exeファイル実行パス取得失敗", err)
+		}
+		exeName := filepath.Base(exe)
+		failOnError(
+			fmt.Sprintf(
+				"%sにTXTファイル、アドレスExcelファイル、weeek Excelファイルを同時にドラッグ&ドロップしてください",
+				exeName),
+			nil)
 	}
 
-	profileItemMap := getProfileItemMapFromTxt(findTxtFilePathFromArgs(os.Args))
-	//profileItemMap := getProfileItemMapFromTxt("./testdata/7ec86e09b001b481.txt")
-	emailItemListMap := getMailFromAddressExcel(findAddressExcelFilePathFromArgs(os.Args), profileItemMap)
-	//emailItemListMap := getMailFromAddressExcel("./testdata/address.xlsx", profileItemMap)
-	discordIdItemListMap := getDiscordIdItemListMap(findWeekExcelFilePathFromArgs(os.Args), emailItemListMap)
-	//discordIdItemListMap := getDiscordIdItemListMap("./testdata/20SS_week6.xlsx", emailItemListMap)
-	dumpOutputCsv(discordIdItemListMap)
-	//convertCsv2Json(os.Args[1])
+	profileOrderItemMap := getProfileItemMapFromTxt(findTxtFilePathFromArgs(os.Args))
+	//profileOrderItemMap := getProfileOrderItemMapFromTxt("./testdata/7ec86e09b001b481.txt")
+	emailOrderItemListMap := getMailOrderItemMapFromAddressExcel(findAddressExcelFilePathFromArgs(os.Args), profileOrderItemMap)
+	//emailOrderItemListMap := getMailOrderItemMapFromAddressExcel("./testdata/address.xlsx", profileOrderItemMap)
+	discordIdOrderItemListMap := getDiscordIdOrderItemListMap(findWeekExcelFilePathFromArgs(os.Args), emailOrderItemListMap)
+	//discordIdOrderItemListMap := getDiscordIdOrderItemListMap("./testdata/20SS_week6.xlsx", emailOrderItemListMap)
+	dumpOutputCsv(discordIdOrderItemListMap)
 	waitEnter()
 }
 
@@ -94,7 +105,7 @@ func waitEnter() {
 	scanner.Scan()
 }
 
-func dumpOutputCsv(discordIdItemListMap map[string][]string) {
+func dumpOutputCsv(discordIdItemListMap map[string][]*ItemOrderInfo) {
 	exe, err := os.Executable()
 	if err != nil {
 		failOnError("exeファイル実行パス取得失敗", err)
@@ -103,7 +114,7 @@ func dumpOutputCsv(discordIdItemListMap map[string][]string) {
 	outputDirPath := filepath.Dir(exe)
 	outputCsv, err := os.OpenFile(outputDirPath+"/output.csv", os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
-		failOnError("Account.jsonのオープンに失敗しました", err)
+		failOnError("output.csvのオープンに失敗しました", err)
 	}
 	defer outputCsv.Close()
 
@@ -113,19 +124,18 @@ func dumpOutputCsv(discordIdItemListMap map[string][]string) {
 	}
 
 	for discordId, itemList := range discordIdItemListMap {
-		for i, item := range itemList {
+		for i, orderItem := range itemList {
 			if i == 0 {
-				outputCsv.WriteString(fmt.Sprintf("%s,%s\n", discordId, item))
-			} else {
-				outputCsv.WriteString(fmt.Sprintf(",%s\n", item))
+				outputCsv.WriteString(discordId)
 			}
+			outputCsv.WriteString(fmt.Sprintf(",%s,%s,%s,%s,%s,%s,%s\n", orderItem.ItemName, orderItem.Size, orderItem.Color, orderItem.Profile, orderItem.Email, orderItem.FamilyName, orderItem.FirstName))
 		}
 	}
 	fmt.Println(outputDirPath + "\\output.csvを出力しました")
 }
 
-func getDiscordIdItemListMap(excelFilePath string, emailItemListMap map[string][]string) map[string][]string {
-	discordIdItemListMap := make(map[string][]string)
+func getDiscordIdOrderItemListMap(excelFilePath string, emailOrderItemListMap map[string][]*ItemOrderInfo) map[string][]*ItemOrderInfo {
+	discordIdOrderItemListMap := make(map[string][]*ItemOrderInfo)
 	excel, err := xlsx.OpenFile(excelFilePath)
 	if err != nil {
 		failOnError(fmt.Sprintf("%sのオープンに失敗", excelFilePath), err)
@@ -141,25 +151,32 @@ func getDiscordIdItemListMap(excelFilePath string, emailItemListMap map[string][
 		}
 		alreadyFoundEmail[email] = true
 
-		emailItemList, doesExist := emailItemListMap[email]
+		orderItemInfoList, doesExist := emailOrderItemListMap[email]
 		if !doesExist {
 			continue
 		}
 
-		discordId := row.Cells[20].String()
-		discordIdItemList, doesExist := discordIdItemListMap[discordId]
-		if !doesExist {
-			discordIdItemList = []string{}
+		familyName := row.Cells[1].String()
+		firstName := row.Cells[2].String()
+		for _, orderItemInfo := range orderItemInfoList {
+			orderItemInfo.FamilyName = familyName
+			orderItemInfo.FirstName = firstName
 		}
-		discordIdItemList = append(discordIdItemList, emailItemList...)
-		discordIdItemListMap[discordId] = discordIdItemList
+
+		discordId := row.Cells[20].String()
+		discordIdOrderItemList, doesExist := discordIdOrderItemListMap[discordId]
+		if !doesExist {
+			discordIdOrderItemList = []*ItemOrderInfo{}
+		}
+		discordIdOrderItemList = append(discordIdOrderItemList, orderItemInfoList...)
+		discordIdOrderItemListMap[discordId] = discordIdOrderItemList
 	}
 
-	return discordIdItemListMap
+	return discordIdOrderItemListMap
 }
 
-func getMailFromAddressExcel(excelFilePath string, profileItemMap map[string]string) map[string][]string {
-	emailItemListMap := make(map[string][]string)
+func getMailOrderItemMapFromAddressExcel(excelFilePath string, profileItemMap map[string]*ItemOrderInfo) map[string][]*ItemOrderInfo {
+	emailOrderItemListMap := make(map[string][]*ItemOrderInfo)
 	excel, err := xlsx.OpenFile(excelFilePath)
 	if err != nil {
 		failOnError(fmt.Sprintf("%sのオープンに失敗", excelFilePath), err)
@@ -168,26 +185,27 @@ func getMailFromAddressExcel(excelFilePath string, profileItemMap map[string]str
 	sheet := excel.Sheets[0]
 	for _, row := range sheet.Rows {
 		profile := row.Cells[18].String()
-		item, doesExist := profileItemMap[profile]
+		orderItem, doesExist := profileItemMap[profile]
 		if !doesExist {
 			continue
 		}
 
 		email := row.Cells[24].String()
-		itemList, doesExist := emailItemListMap[email]
+		orderItem.Email = email
+		orderItemList, doesExist := emailOrderItemListMap[email]
 		if !doesExist {
-			itemList = []string{}
+			orderItemList = []*ItemOrderInfo{}
 		}
 
-		itemList = append(itemList, item)
-		emailItemListMap[email] = itemList
+		orderItemList = append(orderItemList, orderItem)
+		emailOrderItemListMap[email] = orderItemList
 	}
 
-	return emailItemListMap
+	return emailOrderItemListMap
 }
 
-func getProfileItemMapFromTxt(txtFilePath string) map[string]string {
-	profileItemMap := make(map[string]string)
+func getProfileItemMapFromTxt(txtFilePath string) map[string]*ItemOrderInfo {
+	profileItemMap := make(map[string]*ItemOrderInfo)
 	re := regexp.MustCompile("^Profile[0-9]+$")
 	txtFile, err := os.Open(txtFilePath)
 	if err != nil {
@@ -197,19 +215,32 @@ func getProfileItemMapFromTxt(txtFilePath string) map[string]string {
 
 	scanner := bufio.NewScanner(txtFile)
 	isItemLine := false
-	profile := ""
+	isColorLine := false
+	isSizeLine := false
+	var itemInfo *ItemOrderInfo
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if isItemLine {
-			profileItemMap[profile] = line
+			itemInfo.ItemName = line
 			isItemLine = false
+			isColorLine = true
+
+		} else if isColorLine {
+			itemInfo.Color = line
+			isColorLine = false
+			isSizeLine = true
+
+		} else if isSizeLine {
+			itemInfo.Size = line
+			profileItemMap[itemInfo.Profile] = itemInfo
+			isSizeLine = false
 
 		} else if re.MatchString(line) {
-			profile = line
+			itemInfo = &ItemOrderInfo{}
+			itemInfo.Profile = line
 			isItemLine = true
 
-		} else {
-			isItemLine = false
 		}
 	}
 
